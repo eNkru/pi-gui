@@ -57,6 +57,7 @@ export async function resolvePackagedReleaseZip(releaseDir = packagedReleaseDir)
   const entries = await readdir(releaseDir, { withFileTypes: true });
   const zipEntry =
     entries.find((entry) => entry.isFile() && entry.name.endsWith("-arm64.zip")) ??
+    entries.find((entry) => entry.isFile() && entry.name.endsWith("-x64.zip")) ??
     entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip")) ??
     entries.find((entry) => entry.isFile() && entry.name.endsWith(".zip"));
 

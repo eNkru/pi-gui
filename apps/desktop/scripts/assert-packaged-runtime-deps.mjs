@@ -92,17 +92,6 @@ const packagePlatform = (process.env.PI_APP_PACKAGE_PLATFORM ?? process.platform
   .toLowerCase();
 const releaseDir = path.resolve(desktopDir, process.env.PI_APP_TEST_RELEASE_DIR ?? "release");
 const asarPath = resolveAsarPath(releaseDir, packagePlatform);
-const notificationHelperPath =
-  packagePlatform === "darwin"
-    ? path.join(
-        releaseDir,
-        "mac-arm64",
-        "pi-gui.app",
-        "Contents",
-        "MacOS",
-        "pi-gui-notification-status-helper",
-      )
-    : undefined;
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const piCodingAgentPackageName = "@earendil-works/pi-coding-agent";
 const requiredPiCodingAgentVersion = "0.87.1";
@@ -151,49 +140,64 @@ const packagedRuntimeImportChecks = [
   ["proxy-agent", "dist", "index.js"],
 ];
 
-if (!existsSync(asarPath)) {
-  throw new Error(`Packaged app.asar not found at ${asarPath}. Run the packaging step first.`);
+if (packagePlatform === "darwin") {
+  // electron-builder writes mac x64 to `mac` (no suffix) and arm64 to `mac-arm64`.
+  for (const appDirName of ["mac", "mac-arm64"]) {
+    const appDir = path.join(releaseDir, appDirName, "pi-gui.app", "Contents");
+    await verifyPackagedApp(
+      path.join(appDir, "Resources", "app.asar"),
+      path.join(appDir, "MacOS", "pi-gui-notification-status-helper"),
+    );
+  }
+} else {
+  await verifyPackagedApp(asarPath, undefined);
 }
 
-if (notificationHelperPath && !existsSync(notificationHelperPath)) {
-  throw new Error(`Packaged app is missing notification helper: ${notificationHelperPath}`);
-}
+async function verifyPackagedApp(asarPath, notificationHelperPath) {
+  if (!existsSync(asarPath)) {
+    throw new Error(`Packaged app.asar not found at ${asarPath}. Run the packaging step first.`);
+  }
 
-const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
-let cleanupError;
-try {
-  execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
-    cwd: desktopDir,
-    stdio: "pipe",
-    shell: process.platform === "win32",
-  });
+  if (notificationHelperPath && !existsSync(notificationHelperPath)) {
+    throw new Error(`Packaged app is missing notification helper: ${notificationHelperPath}`);
+  }
 
-  verifyRequiredPackages(extractedDir);
-  verifyPiDependencyVersions(extractedDir);
-  await verifyPackagedPiRuntime(extractedDir);
-  await verifyPackagedRuntimeImports(extractedDir);
-  await verifyNativeNodePty(asarPath);
-} finally {
+  const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
+  let cleanupError;
   try {
-    rmSync(extractedDir, {
-      recursive: true,
-      force: true,
-      maxRetries: process.platform === "win32" ? 5 : 0,
-      retryDelay: process.platform === "win32" ? 200 : 0,
+    execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
+      cwd: desktopDir,
+      stdio: "pipe",
+      shell: process.platform === "win32",
     });
-  } catch (error) {
-    if (process.platform === "win32") {
-      console.warn(`Warning: could not remove temp dir ${extractedDir}: ${error.message}`);
-    } else {
-      cleanupError = error;
+
+    verifyRequiredPackages(extractedDir);
+    verifyPiDependencyVersions(extractedDir);
+    await verifyPackagedPiRuntime(extractedDir);
+    await verifyPackagedRuntimeImports(extractedDir);
+    await verifyNativeNodePty(asarPath);
+  } finally {
+    try {
+      rmSync(extractedDir, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === "win32" ? 5 : 0,
+        retryDelay: process.platform === "win32" ? 200 : 0,
+      });
+    } catch (error) {
+      if (process.platform === "win32") {
+        console.warn(`Warning: could not remove temp dir ${extractedDir}: ${error.message}`);
+      } else {
+        cleanupError = error;
+      }
     }
   }
+
+  // Preserve a verification failure if cleanup also failed.
+  if (cleanupError) throw cleanupError;
+
+  console.log(`Verified packaged runtime dependencies in ${asarPath}`);
 }
-
-// Preserve a verification failure if cleanup also failed.
-if (cleanupError) throw cleanupError;
-
-console.log(`Verified packaged runtime dependencies in ${asarPath}`);
 
 function resolveAsarPath(releaseDir, packagePlatform) {
   if (packagePlatform === "darwin") {

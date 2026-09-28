@@ -11,7 +11,7 @@ const outputDir = path.join(desktopDir, "build", "native");
 const helpers = [
   {
     sourcePath: path.join(desktopDir, "resources", "notification-status-helper.swift"),
-    outputPath: path.join(outputDir, "pi-gui-notification-status-helper"),
+    outputStem: "pi-gui-notification-status-helper",
   },
 ];
 
@@ -20,10 +20,34 @@ if (process.platform !== "darwin") {
   process.exit(0);
 }
 
+// electron-builder copies build/native/<stem>-${arch} into each app via the
+// `extraFiles` ${arch} macro, so emit one single-arch helper per slice. Code
+// signing rejects a fat/universal helper dropped into a single-arch bundle.
+const macSlices = [
+  { arch: "arm64", target: "arm64-apple-macos11.0" },
+  { arch: "x64", target: "x86_64-apple-macos11.0" },
+];
+
 await mkdir(outputDir, { recursive: true });
 for (const helper of helpers) {
-  await execFileAsync("xcrun", ["swiftc", helper.sourcePath, "-O", "-o", helper.outputPath], {
-    cwd: desktopDir,
-  });
-  console.log(`Built native helper at ${helper.outputPath}`);
+  await Promise.all(
+    macSlices.map(({ arch, target }) =>
+      execFileAsync(
+        "xcrun",
+        [
+          "swiftc",
+          helper.sourcePath,
+          "-O",
+          "-target",
+          target,
+          "-o",
+          path.join(outputDir, `${helper.outputStem}-${arch}`),
+        ],
+        { cwd: desktopDir },
+      ),
+    ),
+  );
+  console.log(
+    `Built native helpers for ${macSlices.map(({ arch }) => arch).join(" + ")} under ${outputDir}`,
+  );
 }

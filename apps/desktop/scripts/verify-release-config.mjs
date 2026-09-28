@@ -127,6 +127,14 @@ function validateBuilderConfig(config, desktopPackage, afterRemoveSource) {
     "DMG must be signed for Gatekeeper primary-signature verification",
   );
   assert(
+    JSON.stringify(config.mac?.target) ===
+      JSON.stringify([
+        { target: "dmg", arch: ["arm64", "x64"] },
+        { target: "zip", arch: ["arm64", "x64"] },
+      ]),
+    "macOS packaging must produce arm64 and x64 dmg and zip targets",
+  );
+  assert(
     config.win?.signAndEditExecutable === true,
     "Windows packaging must preserve executable icon and version metadata",
   );

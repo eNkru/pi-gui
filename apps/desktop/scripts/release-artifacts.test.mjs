@@ -32,7 +32,12 @@ function primaryUpdateAsset(platform) {
 
 function updateAssets(platform) {
   if (platform === "macos") {
-    return [`pi-gui-${VERSION}-arm64.zip`, `pi-gui-${VERSION}-arm64.dmg`];
+    return [
+      `pi-gui-${VERSION}-arm64.zip`,
+      `pi-gui-${VERSION}-x64.zip`,
+      `pi-gui-${VERSION}-arm64.dmg`,
+      `pi-gui-${VERSION}-x64.dmg`,
+    ];
   }
   if (platform === "linux") {
     return [`pi-gui-${VERSION}-x86_64.AppImage`, `pi-gui_${VERSION}_amd64.deb`];
@@ -232,18 +237,25 @@ test("refreshes macOS metadata and blockmap from final DMG bytes", async () => {
   const source = await createFixture(root, "macos");
   const manifestPath = path.join(source, "latest-mac.yml");
   const manifest = parse(await readFile(manifestPath, "utf8"));
-  const dmgEntry = manifest.files.find(({ url }) => url.endsWith(".dmg"));
-  dmgEntry.size = 1;
-  dmgEntry.sha512 = "stale-before-stapling";
-  dmgEntry.blockMapSize = 1;
+  // Notarization and stapling change every DMG's bytes, invalidating the blockmaps.
+  for (const entry of manifest.files) {
+    if (entry.url.endsWith(".dmg")) {
+      entry.size = 1;
+      entry.sha512 = "stale-before-stapling";
+      entry.blockMapSize = 1;
+    }
+  }
   await writeFile(manifestPath, stringify(manifest), "utf8");
 
   const refreshed = await refreshMacUpdateMetadata({ releaseDir: source, version: VERSION });
+  assert.equal(refreshed.length, 2);
   const finalManifest = parse(await readFile(manifestPath, "utf8"));
-  const finalDmg = finalManifest.files.find(({ url }) => url === refreshed.dmg);
-  assert.equal(finalDmg.size, refreshed.size);
-  assert.equal(finalDmg.sha512, refreshed.sha512);
-  assert.equal(finalDmg.blockMapSize, refreshed.blockMapSize);
+  for (const result of refreshed) {
+    const finalDmg = finalManifest.files.find(({ url }) => url === result.dmg);
+    assert.equal(finalDmg.size, result.size);
+    assert.equal(finalDmg.sha512, result.sha512);
+    assert.equal(finalDmg.blockMapSize, result.blockMapSize);
+  }
 
   await stageArtifacts({
     platform: "macos",
